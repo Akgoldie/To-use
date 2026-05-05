@@ -1,0 +1,103 @@
+Sub SplitEasyMode_WithLinks()
+    Dim dict As Object, val As Variant, sName As Variant
+    Dim ws As Worksheet, newWb As Workbook, folderPath As String
+    Dim colMap As Object, i As Long, lastRow As Long, currentCol As Integer
+    Dim targetWs As Worksheet, cleanName As String
+    Dim linkSheet As Worksheet, linkRow As Long
+
+    ' 1. CONFIGURATION
+    Set colMap = CreateObject("Scripting.Dictionary")
+    colMap.Add "Sheet1", 2  ' Unique name in Col B
+    colMap.Add "Sheet2", 2  ' Unique name in Col B
+    colMap.Add "Sheet3", 1  ' Unique name in Col A
+    colMap.Add "Sheet4", 3  ' Unique name in Col C
+    colMap.Add "Sheet5", 5  ' Unique name in Col E
+
+    ' YOUR PATH
+    folderPath = "C:\Users\Madhan Siva\OneDrive\Documents\TEST\TEST 1\"
+    
+    If Dir(folderPath, vbDirectory) = "" Then
+        MsgBox "Path not found. Please verify: " & folderPath
+        Exit Sub
+    End If
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    
+    ' 2. GET UNIQUE NAMES
+    For Each sName In colMap.Keys
+        On Error Resume Next
+        Set ws = ThisWorkbook.Sheets(CStr(sName))
+        On Error GoTo 0
+        If Not ws Is Nothing Then
+            currentCol = colMap(sName)
+            lastRow = ws.Cells(ws.Rows.Count, currentCol).End(xlUp).Row
+            For i = 2 To lastRow
+                If ws.Cells(i, currentCol).Value <> "" Then dict(CStr(ws.Cells(i, currentCol).Value)) = 1
+            Next i
+        End If
+    Next sName
+
+    ' 3. CREATE HYPERLINK INDEX SHEET
+    On Error Resume Next
+    Set linkSheet = ThisWorkbook.Sheets("File_Index")
+    If linkSheet Is Nothing Then
+        Set linkSheet = ThisWorkbook.Sheets.Add(Before:=ThisWorkbook.Sheets(1))
+        linkSheet.Name = "File_Index"
+    End If
+    On Error GoTo 0
+    linkSheet.Cells.Clear
+    linkSheet.Range("A1:B1").Value = Array("Unique Name", "File Link (Click to Open)")
+    linkSheet.Range("A1:B1").Font.Bold = True
+    linkRow = 2
+
+    ' 4. PROCESS AND SAVE
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+
+    For Each val In dict.Keys
+        ' Clean filename
+        cleanName = val
+        Dim illegalChars As Variant, char As Variant
+        illegalChars = Array("/", "\", ":", "*", "?", """", "<", ">", "|")
+        For Each char In illegalChars: cleanName = Replace(cleanName, char, "-"): Next char
+
+        Set newWb = Workbooks.Add
+        
+        For Each sName In colMap.Keys
+            Set ws = ThisWorkbook.Sheets(CStr(sName))
+            currentCol = colMap(sName)
+            
+            If newWb.Sheets(1).Range("A1").Value = "" Then
+                Set targetWs = newWb.Sheets(1)
+            Else
+                Set targetWs = newWb.Sheets.Add(After:=newWb.Sheets(newWb.Sheets.Count))
+            End If
+            targetWs.Name = CStr(sName)
+
+            ws.UsedRange.AutoFilter Field:=currentCol, Criteria1:=val
+            On Error Resume Next
+            ws.UsedRange.SpecialCells(xlCellTypeVisible).Copy Destination:=targetWs.Range("A1")
+            On Error GoTo 0
+            ws.AutoFilterMode = False
+        Next sName
+
+        ' Save File
+        Dim fullPath As String
+        fullPath = folderPath & cleanName & ".xlsx"
+        newWb.SaveAs Filename:=fullPath, FileFormat:=51
+        newWb.Close SaveChanges:=False
+        
+        ' 5. ADD HYPERLINK TO INDEX
+        linkSheet.Cells(linkRow, 1).Value = val
+        linkSheet.Hyperlinks.Add Anchor:=linkSheet.Cells(linkRow, 2), _
+            Address:=fullPath, _
+            TextToDisplay:="Open " & cleanName
+        linkRow = linkRow + 1
+    Next val
+
+    linkSheet.Columns("A:B").AutoFit
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    
+    MsgBox "Done! Created " & dict.Count & " files. Links added to 'File_Index' sheet.", vbInformation
+End Sub
